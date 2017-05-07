@@ -1,0 +1,1061 @@
+---
+title: "Final Project Data Clean Process"
+author: "Zhenru Han"
+date: "May 5, 2017"
+output:
+  html_document: default
+  pdf_document: default
+runtime: document
+---
+
+#This document is for data reading and cleaning. I do my plotting and analyzing in the other .rmd file names "Final Project Analysis.rmd". I am preparing data for analzing residential fire with fatality aroung the U.S. from 2006-2015.
+#I store all the clean and tidy data to the local through this file. 
+
+##Step one: Preparing
+```{r setup, include=FALSE}
+library(dplyr)
+library(tidyr)
+library(magrittr)
+library(ggplot2)
+library(ggmap)
+library(shiny)
+library(ff)
+library(ffbase)
+library(foreign)
+library(zipcode)
+```
+
+##Step 2: Read and Clean Data
+
+###Read and Clean 2006 Data
+```{r setup, include=FALSE}
+bi2006 <- read.dbf("2006/basicincident.dbf") #The basic incident
+address2006 <- read.dbf("2006/incidentaddress.dbf") #The incident address
+cc2006 <- read.dbf("2006/civiliancasualty.dbf") #The civilian casualty
+fc2006 <- read.dbf("2006/ffcasualty.dbf") #The fire service casualty
+```
+####NOTE: We need to combine the columns "STATE", "INC_DATE", FDID", and "INC_NO" in the four D datasets because only this way can assign each fire incident to a specific ID.
+```{r setup, include=FALSE}
+bi2006$SPID <- paste0(bi2006$STATE,bi2006$INC_DATE, bi2006$FDID, bi2006$INC_NO)
+address2006$SPID<- paste0(address2006$STATE,address2006$INC_DATE, address2006$FDID, address2006$INC_NO)
+cc2006$SPID <- paste0(cc2006$STATE,cc2006$INC_DATE, cc2006$FDID, cc2006$INC_NO)
+fc2006$SPID <- paste0(fc2006$STATE,fc2006$FDID, fc2006$INC_DATE, fc2006$INC_NO)
+```
+
+
+###Clean 2006 Data
+####First, start with bi2006, I am only concentrating on residential fire with fatality , so I only keep the residential fire with fatality.
+```{r setup, include=FALSE}
+bi2006 <- filter(bi2006, PROP_USE == c(419,429,439,449,459,460,462,464,400))
+bi2006$DEATH_NO <- as.numeric(bi2006$FF_DEATH) + as.numeric(bi2006$OTH_DEATH)
+bi2006 <- filter(bi2006, DEATH_NO > 0)
+```
+####Second, I remove the columns that are useless to my topic in bi2006 and remove duplicate.
+```{r setup, include=FALSE}
+bi2006$VERSION = NULL ; bi2006$APP_MOD = NULL; bi2006$FDID = NULL;
+bi2006$DEPT_STA = NULL; bi2006$SUP_APP = NULL; bi2006$INC_DATE = NULL
+bi2006$ADD_WILD = NULL; bi2006$EMS_APP = NULL; bi2006$HAZ_REL = NULL
+bi2006$AID = NULL; bi2006$OTH_APP = NULL; bi2006$INC_NO = NULL
+bi2006$ALARM = NULL; bi2006$SUP_PER = NULL; bi2006$EXP_NO = NULL
+bi2006$INC_TYPE = NULL; bi2006$EMS_PER = NULL
+bi2006$ARRIVAL = NULL; bi2006$OTH_PER = NULL
+bi2006$INC_CONT = NULL; bi2006$RESOU_AID = NULL
+bi2006$EXP_NO = NULL; bi2006$PROP_LOSS = NULL
+bi2006$LU_CLEAR = NULL; bi2006$CONT_LOSS = NULL
+bi2006$SHIFT = NULL; bi2006$PROP_VAL = NULL
+bi2006$DISTRICT = NULL; bi2006$CONT_VAL = NULL
+bi2006$ALARMS = NULL; bi2006$DET_ALERT = NULL
+bi2006$ACT_TAK1 = NULL; bi2006$MIXED_USE = NULL; bi2006$CENSUS = NULL
+bi2006$ACT_TAK2 = NULL ; bi2006$ACT_TAK3 = NULL
+
+bi2006 <- bi2006[!duplicated(bi2006), ]
+```
+####Third, Clean other datasets and then join bi2006.
+
+#####I. address2016
+#####First remove useless columns
+```{r setup, include=FALSE}
+#address2006
+address2006$INC_DATE = NULL; address2006$EXP_NO = NULL;
+address2006$LOC_TYPE = NULL; address2006$NUM_MILE = NULL; address2006$ZIP4 = NULL
+address2006$APT_NO = NULL; address2006$X_STREET = NULL; address2006$STREET_PRE = NULL
+address2006$STREETSUF = NULL; address2006$STREETTYPE = NULL; address2006$STREETNAME = NULL; address2006$STATE = NULL; address2006$FDID = NULL; address2006$INC_NO = NULL
+```
+#####Second, Join bi2006, and I need to get the coordinates of these addresses after joining. 
+```{r setup, include=FALSE}
+tidy2006_1 <- left_join(bi2006, address2006, by = "SPID")
+tidy2006_2<- tidy2006_1[!duplicated(tidy2006_1), ]
+```
+#####Note, in tidy2006_2 dataset, we notice a lot of STATE_ID missing. However, it is ok to have them blank because we only need zipcode for getting coordinates and ploting map. Here we need to get the data that have complete zipcode. 
+```{r setup, include=FALSE}
+tidy2006_3 <- filter(tidy2006_2, !is.na(ZIP5))
+```
+#####Third, lets find coordinates for these fire incidents.
+```{r setup, include=FALSE}
+#First, apply the dataset zipcode
+zipcode1 <- data(zipcode)
+names(tidy2006_3)[names(tidy2006_3) == 'ZIP5'] <- 'zip'
+tidy2006_4 <- left_join(tidy2006_3, zipcode, by = "zip")
+##clean and remove unmatch rows (The zipcode dataset is correct, but the raw fire data might be wrong, there might be some error in state name, so we need to remove the error terms)
+tidy2006_5 <- subset(tidy2006_4, state == STATE) #I also successfully removed the rows with "00000" zipcode using this subset.
+#Check duplicate incidents and remove them, then remove useless columns
+tidy2006_6 <- tidy2006_5[!duplicated(tidy2006_5), ]
+tidy2006_6$STATE_ID = NULL; tidy2006_6$CITY = NULL; tidy2006_6$STATE = NULL
+```
+
+#####II. cc2006
+#####First, remove useless columns and narrow the data to only fire with death
+```{r setup, include=FALSE}
+ cc2006$EXP_NO = NULL; cc2006$SEQ_NUMBER= NULL; cc2006$FDID = NULL
+cc2006$VERSION = NULL; cc2006$RACE = NULL; cc2006$ETHNICITY = NULL
+cc2006$AFFILIAT = NULL; cc2006$INJ_DT_TIM = NULL; cc2006$CAUSE_INJ =NULL
+cc2006$HUM_FACT1 = NULL; cc2006$HUM_FACT2 = NULL; cc2006$HUM_FACT3 = NULL
+cc2006$HUM_FACT4 = NULL; cc2006$HUM_FACT5 = NULL; cc2006$HUM_FACT7 = NULL
+cc2006$HUM_FACT6 = NULL; cc2006$HUM_FACT8 = NULL; cc2006$FACT_INJ1 = NULL
+cc2006$FACT_INJ2 = NULL; cc2006$FACT_INJ3 = NULL; cc2006$ACTIV_INJ = NULL
+cc2006$LOC_INC = NULL; cc2006$GEN_LOC_IN = NULL; cc2006$STORY_INC = NULL
+cc2006$STORY_INJ = NULL; cc2006$SPC_LOC_IN = NULL; cc2006$INC_DATE = NULL
+cc2006$PRIM_SYMP = NULL; cc2006$CC_DISPOS = NULL; cc2006$INC_NO = NULL
+cc2006 <- subset(cc2006, SEV == 5)
+cc2006$SEV = NULL #all 5 (death)
+```
+#####Second, rename the remaining columns to seperate from which in fc2006 dataset later
+```{r setup, include=FALSE}
+names(cc2006)[names(cc2006) == 'GENDER'] <- 'CC_GENDER'
+names(cc2006)[names(cc2006) == 'AGE'] <- 'CC_AGE'
+names(cc2006)[names(cc2006) == 'BODY_PART'] <- 'CC_BODY_PART'
+```
+#####Third, Join tidy2006_6, check unmatches and duplicates and clean the datasets.
+```{r setup, include=FALSE}
+tidy2006_7 <- left_join(tidy2006_6, cc2006, by = "SPID")
+#Check duplicate
+tidy2006_8 <- tidy2006_7[!duplicated(tidy2006_7), ]
+```
+#####NOTE, there allows duplicate SPID numbers, because the cc2006 actually count each dead people's condition seperately. 
+
+#####III. fc2006
+#####First, remove useless columns and remove all other severity but only 7 (which means death)
+```{r setup, include=FALSE}
+fc2006$STATE = NULL; fc2006$FDID = NULL; fc2006$INC_DATE = NULL; fc2006$INC_NO = NULL
+fc2006$EXP_NO = NULL; fc2006$FF_SEQ_NO = NULL; fc2006$VERSION = NULL; 
+fc2006$INJ_DATE = NULL; fc2006$RESPONSES = NULL; fc2006$ASSIGNMENT = NULL
+fc2006$TAKEN_TO = NULL; fc2006$ACTIVITY = NULL ; fc2006$SYMPTOM = NULL
+fc2006$PABI = NULL; fc2006$CAUSE = NULL; fc2006$FACTOR = NULL
+fc2006$OBJECT = NULL; fc2006$WIO = NULL; fc2006$RELATION = NULL
+fc2006$STORY = NULL; fc2006$LOCATION = NULL; fc2006$VEHICLE = NULL
+fc2006$PROT_EQP = NULL
+
+fc2006 <- subset(fc2006, SEVERITY == 7)
+fc2006$SEVERITY = NULL #all 7 (death)
+```
+#####Second, rename the remaining columns to seperate from which in cc2006 dataset
+```{r setup, include=FALSE}
+names(fc2006)[names(fc2006) == 'GENDER'] <- 'FC_GENDER'
+names(fc2006)[names(fc2006) == 'AGE'] <- 'FC_AGE'
+names(fc2006)[names(fc2006) == 'PHYS_COND'] <- 'FC_PHYS_COND'
+names(fc2006)[names(fc2006) == 'CAREER'] <- 'FC_CAREER'
+```
+#####Third, Join tidy2006_8, check unmatches and duplicates and clean the datasets.
+```{r setup, include=FALSE}
+tidy2006_9 <- left_join(tidy2006_8, fc2006, by = "SPID")
+#Check duplicate
+tidy2006_10 <- tidy2006_9[!duplicated(tidy2006_9), ]
+```
+###Forth, reproduce the tidy data into dbf and save it to local address.
+```{r setup, include=FALSE}
+write.dbf(tidy2006_10, "tidyrf2006.dbf")
+```
+
+####Similarly, I can read and clean all other year's data in the same way.
+
+###Read and Clean 2007 Data
+```{r setup, include=FALSE}
+bi2007 <- read.dbf("2007/basicincident.dbf") #The basic incident
+address2007 <- read.dbf("2007/incidentaddress.dbf") #The incident address
+cc2007 <- read.dbf("2007/civiliancasualty.dbf") #The civilian casualty
+fc2007 <- read.dbf("2007/ffcasualty.dbf") #The fire service casualty
+
+bi2007$SPID <- paste0(bi2007$STATE,bi2007$INC_DATE, bi2007$FDID, bi2007$INC_NO)
+address2007$SPID<- paste0(address2007$STATE,address2007$INC_DATE, address2007$FDID, address2007$INC_NO)
+cc2007$SPID <- paste0(cc2007$STATE,cc2007$INC_DATE, cc2007$FDID, cc2007$INC_NO)
+fc2007$SPID <- paste0(fc2007$STATE,fc2007$FDID, fc2007$INC_DATE, fc2007$INC_NO)
+
+bi2007 <- filter(bi2007, PROP_USE == c(419,429,439,449,459,460,462,464,400))
+bi2007$DEATH_NO <- as.numeric(bi2007$FF_DEATH) + as.numeric(bi2007$OTH_DEATH)
+bi2007 <- filter(bi2007, DEATH_NO > 0)
+
+bi2007$VERSION = NULL ; bi2007$APP_MOD = NULL; bi2007$FDID = NULL;
+bi2007$DEPT_STA = NULL; bi2007$SUP_APP = NULL; bi2007$INC_DATE = NULL
+bi2007$ADD_WILD = NULL; bi2007$EMS_APP = NULL; bi2007$HAZ_REL = NULL
+bi2007$AID = NULL; bi2007$OTH_APP = NULL; bi2007$INC_NO = NULL
+bi2007$ALARM = NULL; bi2007$SUP_PER = NULL; bi2007$EXP_NO = NULL
+bi2007$INC_TYPE = NULL; bi2007$EMS_PER = NULL
+bi2007$ARRIVAL = NULL; bi2007$OTH_PER = NULL
+bi2007$INC_CONT = NULL; bi2007$RESOU_AID = NULL
+bi2007$EXP_NO = NULL; bi2007$PROP_LOSS = NULL
+bi2007$LU_CLEAR = NULL; bi2007$CONT_LOSS = NULL
+bi2007$SHIFT = NULL; bi2007$PROP_VAL = NULL
+bi2007$DISTRICT = NULL; bi2007$CONT_VAL = NULL
+bi2007$ALARMS = NULL; bi2007$DET_ALERT = NULL
+bi2007$ACT_TAK1 = NULL; bi2007$MIXED_USE = NULL; bi2007$CENSUS = NULL
+bi2007$ACT_TAK2 = NULL ; bi2007$ACT_TAK3 = NULL
+
+bi2007 <- bi2007[!duplicated(bi2007), ]
+
+address2007$INC_DATE = NULL; address2007$EXP_NO = NULL;
+address2007$LOC_TYPE = NULL; address2007$NUM_MILE = NULL; address2007$ZIP4 = NULL
+address2007$APT_NO = NULL; address2007$X_STREET = NULL; address2007$STREET_PRE = NULL
+address2007$STREETSUF = NULL; address2007$STREETTYPE = NULL; address2007$STREETNAME = NULL; address2007$STATE = NULL; address2007$FDID = NULL; address2007$INC_NO = NULL
+
+tidy2007_1 <- left_join(bi2007, address2007, by = "SPID")
+tidy2007_2<- tidy2007_1[!duplicated(tidy2007_1), ]
+
+tidy2007_3 <- filter(tidy2007_2, !is.na(ZIP5))
+
+#First, apply the dataset zipcode
+zipcode1 <- data(zipcode)
+names(tidy2007_3)[names(tidy2007_3) == 'ZIP5'] <- 'zip'
+tidy2007_4 <- left_join(tidy2007_3, zipcode, by = "zip")
+##clean and remove unmatch rows (The zipcode dataset is correct, but the raw fire data might be wrong, there might be some error in state name, so we need to remove the error terms)
+tidy2007_5 <- subset(tidy2007_4, state == STATE) #I also successfully removed the rows with "00000" zipcode using this subset.
+#Check duplicate incidents and remove them, then remove useless columns
+tidy2007_6 <- tidy2007_5[!duplicated(tidy2007_5), ]
+tidy2007_6$STATE_ID = NULL; tidy2007_6$CITY = NULL; tidy2007_6$STATE = NULL
+
+ cc2007$EXP_NO = NULL; cc2007$SEQ_NUMBER= NULL; cc2007$FDID = NULL
+cc2007$VERSION = NULL; cc2007$RACE = NULL; cc2007$ETHNICITY = NULL
+cc2007$AFFILIAT = NULL; cc2007$INJ_DT_TIM = NULL; cc2007$CAUSE_INJ =NULL
+cc2007$HUM_FACT1 = NULL; cc2007$HUM_FACT2 = NULL; cc2007$HUM_FACT3 = NULL
+cc2007$HUM_FACT4 = NULL; cc2007$HUM_FACT5 = NULL; cc2007$HUM_FACT7 = NULL
+cc2007$HUM_FACT6 = NULL; cc2007$HUM_FACT8 = NULL; cc2007$FACT_INJ1 = NULL
+cc2007$FACT_INJ2 = NULL; cc2007$FACT_INJ3 = NULL; cc2007$ACTIV_INJ = NULL
+cc2007$LOC_INC = NULL; cc2007$GEN_LOC_IN = NULL; cc2007$STORY_INC = NULL
+cc2007$STORY_INJ = NULL; cc2007$SPC_LOC_IN = NULL; cc2007$INC_DATE = NULL
+cc2007$PRIM_SYMP = NULL; cc2007$CC_DISPOS = NULL; cc2007$INC_NO = NULL
+cc2007 <- subset(cc2007, SEV == 5)
+cc2007$SEV = NULL #all 5 (death)
+
+names(cc2007)[names(cc2007) == 'GENDER'] <- 'CC_GENDER'
+names(cc2007)[names(cc2007) == 'AGE'] <- 'CC_AGE'
+names(cc2007)[names(cc2007) == 'BODY_PART'] <- 'CC_BODY_PART'
+
+tidy2007_7 <- left_join(tidy2007_6, cc2007, by = "SPID")
+#Check duplicate
+tidy2007_8 <- tidy2007_7[!duplicated(tidy2007_7), ]
+
+fc2007$STATE = NULL; fc2007$FDID = NULL; fc2007$INC_DATE = NULL; fc2007$INC_NO = NULL
+fc2007$EXP_NO = NULL; fc2007$FF_SEQ_NO = NULL; fc2007$VERSION = NULL; 
+fc2007$INJ_DATE = NULL; fc2007$RESPONSES = NULL; fc2007$ASSIGNMENT = NULL
+fc2007$TAKEN_TO = NULL; fc2007$ACTIVITY = NULL ; fc2007$SYMPTOM = NULL
+fc2007$PABI = NULL; fc2007$CAUSE = NULL; fc2007$FACTOR = NULL
+fc2007$OBJECT = NULL; fc2007$WIO = NULL; fc2007$RELATION = NULL
+fc2007$STORY = NULL; fc2007$LOCATION = NULL; fc2007$VEHICLE = NULL
+fc2007$PROT_EQP = NULL
+
+fc2007 <- subset(fc2007, SEVERITY == 7)
+fc2007$SEVERITY = NULL #all 7 (death)
+
+names(fc2007)[names(fc2007) == 'GENDER'] <- 'FC_GENDER'
+names(fc2007)[names(fc2007) == 'AGE'] <- 'FC_AGE'
+names(fc2007)[names(fc2007) == 'PHYS_COND'] <- 'FC_PHYS_COND'
+names(fc2007)[names(fc2007) == 'CAREER'] <- 'FC_CAREER'
+
+tidy2007_9 <- left_join(tidy2007_8, fc2007, by = "SPID")
+#Check duplicate
+tidy2007_10 <- tidy2007_9[!duplicated(tidy2007_9), ]
+
+write.dbf(tidy2007_10, "tidyrf2007.dbf")
+```
+
+###Read and Clean 2008 Data
+```{r setup, include=FALSE}
+bi2008 <- read.dbf("2008/basicincident.dbf") #The basic incident
+address2008 <- read.dbf("2008/incidentaddress.dbf") #The incident address
+cc2008 <- read.dbf("2008/civiliancasualty.dbf") #The civilian casualty
+fc2008 <- read.dbf("2008/ffcasualty.dbf") #The fire service casualty
+
+bi2008$SPID <- paste0(bi2008$STATE,bi2008$INC_DATE, bi2008$FDID, bi2008$INC_NO)
+address2008$SPID<- paste0(address2008$STATE,address2008$INC_DATE, address2008$FDID, address2008$INC_NO)
+cc2008$SPID <- paste0(cc2008$STATE,cc2008$INC_DATE, cc2008$FDID, cc2008$INC_NO)
+fc2008$SPID <- paste0(fc2008$STATE,fc2008$FDID, fc2008$INC_DATE, fc2008$INC_NO)
+
+bi2008 <- filter(bi2008, PROP_USE == c(419,429,439,449,459,460,462,464,400))
+bi2008$DEATH_NO <- as.numeric(bi2008$FF_DEATH) + as.numeric(bi2008$OTH_DEATH)
+bi2008 <- filter(bi2008, DEATH_NO > 0)
+
+bi2008$VERSION = NULL ; bi2008$APP_MOD = NULL; bi2008$FDID = NULL;
+bi2008$DEPT_STA = NULL; bi2008$SUP_APP = NULL; bi2008$INC_DATE = NULL
+bi2008$ADD_WILD = NULL; bi2008$EMS_APP = NULL; bi2008$HAZ_REL = NULL
+bi2008$AID = NULL; bi2008$OTH_APP = NULL; bi2008$INC_NO = NULL
+bi2008$ALARM = NULL; bi2008$SUP_PER = NULL; bi2008$EXP_NO = NULL
+bi2008$INC_TYPE = NULL; bi2008$EMS_PER = NULL
+bi2008$ARRIVAL = NULL; bi2008$OTH_PER = NULL
+bi2008$INC_CONT = NULL; bi2008$RESOU_AID = NULL
+bi2008$EXP_NO = NULL; bi2008$PROP_LOSS = NULL
+bi2008$LU_CLEAR = NULL; bi2008$CONT_LOSS = NULL
+bi2008$SHIFT = NULL; bi2008$PROP_VAL = NULL
+bi2008$DISTRICT = NULL; bi2008$CONT_VAL = NULL
+bi2008$ALARMS = NULL; bi2008$DET_ALERT = NULL
+bi2008$ACT_TAK1 = NULL; bi2008$MIXED_USE = NULL; bi2008$CENSUS = NULL
+bi2008$ACT_TAK2 = NULL ; bi2008$ACT_TAK3 = NULL
+
+bi2008 <- bi2008[!duplicated(bi2008), ]
+
+address2008$INC_DATE = NULL; address2008$EXP_NO = NULL;
+address2008$LOC_TYPE = NULL; address2008$NUM_MILE = NULL; address2008$ZIP4 = NULL
+address2008$APT_NO = NULL; address2008$X_STREET = NULL; address2008$STREET_PRE = NULL
+address2008$STREETSUF = NULL; address2008$STREETTYPE = NULL; address2008$STREETNAME = NULL; address2008$STATE = NULL; address2008$FDID = NULL; address2008$INC_NO = NULL
+
+tidy2008_1 <- left_join(bi2008, address2008, by = "SPID")
+tidy2008_2<- tidy2008_1[!duplicated(tidy2008_1), ]
+
+tidy2008_3 <- filter(tidy2008_2, !is.na(ZIP5))
+
+#First, apply the dataset zipcode
+zipcode1 <- data(zipcode)
+names(tidy2008_3)[names(tidy2008_3) == 'ZIP5'] <- 'zip'
+tidy2008_4 <- left_join(tidy2008_3, zipcode, by = "zip")
+##clean and remove unmatch rows (The zipcode dataset is correct, but the raw fire data might be wrong, there might be some error in state name, so we need to remove the error terms)
+tidy2008_5 <- subset(tidy2008_4, state == STATE) #I also successfully removed the rows with "00000" zipcode using this subset.
+#Check duplicate incidents and remove them, then remove useless columns
+tidy2008_6 <- tidy2008_5[!duplicated(tidy2008_5), ]
+tidy2008_6$STATE_ID = NULL; tidy2008_6$CITY = NULL; tidy2008_6$STATE = NULL
+
+ cc2008$EXP_NO = NULL; cc2008$SEQ_NUMBER= NULL; cc2008$FDID = NULL
+cc2008$VERSION = NULL; cc2008$RACE = NULL; cc2008$ETHNICITY = NULL
+cc2008$AFFILIAT = NULL; cc2008$INJ_DT_TIM = NULL; cc2008$CAUSE_INJ =NULL
+cc2008$HUM_FACT1 = NULL; cc2008$HUM_FACT2 = NULL; cc2008$HUM_FACT3 = NULL
+cc2008$HUM_FACT4 = NULL; cc2008$HUM_FACT5 = NULL; cc2008$HUM_FACT7 = NULL
+cc2008$HUM_FACT6 = NULL; cc2008$HUM_FACT8 = NULL; cc2008$FACT_INJ1 = NULL
+cc2008$FACT_INJ2 = NULL; cc2008$FACT_INJ3 = NULL; cc2008$ACTIV_INJ = NULL
+cc2008$LOC_INC = NULL; cc2008$GEN_LOC_IN = NULL; cc2008$STORY_INC = NULL
+cc2008$STORY_INJ = NULL; cc2008$SPC_LOC_IN = NULL; cc2008$INC_DATE = NULL
+cc2008$PRIM_SYMP = NULL; cc2008$CC_DISPOS = NULL; cc2008$INC_NO = NULL
+cc2008 <- subset(cc2008, SEV == 5)
+cc2008$SEV = NULL #all 5 (death)
+
+names(cc2008)[names(cc2008) == 'GENDER'] <- 'CC_GENDER'
+names(cc2008)[names(cc2008) == 'AGE'] <- 'CC_AGE'
+names(cc2008)[names(cc2008) == 'BODY_PART'] <- 'CC_BODY_PART'
+
+tidy2008_7 <- left_join(tidy2008_6, cc2008, by = "SPID")
+#Check duplicate
+tidy2008_8 <- tidy2008_7[!duplicated(tidy2008_7), ]
+
+fc2008$STATE = NULL; fc2008$FDID = NULL; fc2008$INC_DATE = NULL; fc2008$INC_NO = NULL
+fc2008$EXP_NO = NULL; fc2008$FF_SEQ_NO = NULL; fc2008$VERSION = NULL; 
+fc2008$INJ_DATE = NULL; fc2008$RESPONSES = NULL; fc2008$ASSIGNMENT = NULL
+fc2008$TAKEN_TO = NULL; fc2008$ACTIVITY = NULL ; fc2008$SYMPTOM = NULL
+fc2008$PABI = NULL; fc2008$CAUSE = NULL; fc2008$FACTOR = NULL
+fc2008$OBJECT = NULL; fc2008$WIO = NULL; fc2008$RELATION = NULL
+fc2008$STORY = NULL; fc2008$LOCATION = NULL; fc2008$VEHICLE = NULL
+fc2008$PROT_EQP = NULL
+
+fc2008 <- subset(fc2008, SEVERITY == 7)
+fc2008$SEVERITY = NULL #all 7 (death)
+
+names(fc2008)[names(fc2008) == 'GENDER'] <- 'FC_GENDER'
+names(fc2008)[names(fc2008) == 'AGE'] <- 'FC_AGE'
+names(fc2008)[names(fc2008) == 'PHYS_COND'] <- 'FC_PHYS_COND'
+names(fc2008)[names(fc2008) == 'CAREER'] <- 'FC_CAREER'
+
+tidy2008_9 <- left_join(tidy2008_8, fc2008, by = "SPID")
+#Check duplicate
+tidy2008_10 <- tidy2008_9[!duplicated(tidy2008_9), ]
+
+write.dbf(tidy2008_10, "tidyrf2008.dbf")
+```
+
+###Read and Clean 2009 Data
+```{r setup, include=FALSE}
+bi2009 <- read.dbf("2009/basicincident.dbf") #The basic incident
+address2009 <- read.dbf("2009/incidentaddress.dbf") #The incident address
+cc2009 <- read.dbf("2009/civiliancasualty.dbf") #The civilian casualty
+fc2009 <- read.dbf("2009/ffcasualty.dbf") #The fire service casualty
+
+bi2009$SPID <- paste0(bi2009$STATE,bi2009$INC_DATE, bi2009$FDID, bi2009$INC_NO)
+address2009$SPID<- paste0(address2009$STATE,address2009$INC_DATE, address2009$FDID, address2009$INC_NO)
+cc2009$SPID <- paste0(cc2009$STATE,cc2009$INC_DATE, cc2009$FDID, cc2009$INC_NO)
+fc2009$SPID <- paste0(fc2009$STATE,fc2009$FDID, fc2009$INC_DATE, fc2009$INC_NO)
+
+bi2009 <- filter(bi2009, PROP_USE == c(419,429,439,449,459,460,462,464,400))
+bi2009$DEATH_NO <- as.numeric(bi2009$FF_DEATH) + as.numeric(bi2009$OTH_DEATH)
+bi2009 <- filter(bi2009, DEATH_NO > 0)
+
+bi2009$VERSION = NULL ; bi2009$APP_MOD = NULL; bi2009$FDID = NULL;
+bi2009$DEPT_STA = NULL; bi2009$SUP_APP = NULL; bi2009$INC_DATE = NULL
+bi2009$ADD_WILD = NULL; bi2009$EMS_APP = NULL; bi2009$HAZ_REL = NULL
+bi2009$AID = NULL; bi2009$OTH_APP = NULL; bi2009$INC_NO = NULL
+bi2009$ALARM = NULL; bi2009$SUP_PER = NULL; bi2009$EXP_NO = NULL
+bi2009$INC_TYPE = NULL; bi2009$EMS_PER = NULL
+bi2009$ARRIVAL = NULL; bi2009$OTH_PER = NULL
+bi2009$INC_CONT = NULL; bi2009$RESOU_AID = NULL
+bi2009$EXP_NO = NULL; bi2009$PROP_LOSS = NULL
+bi2009$LU_CLEAR = NULL; bi2009$CONT_LOSS = NULL
+bi2009$SHIFT = NULL; bi2009$PROP_VAL = NULL
+bi2009$DISTRICT = NULL; bi2009$CONT_VAL = NULL
+bi2009$ALARMS = NULL; bi2009$DET_ALERT = NULL
+bi2009$ACT_TAK1 = NULL; bi2009$MIXED_USE = NULL; bi2009$CENSUS = NULL
+bi2009$ACT_TAK2 = NULL ; bi2009$ACT_TAK3 = NULL
+
+bi2009 <- bi2009[!duplicated(bi2009), ]
+
+address2009$INC_DATE = NULL; address2009$EXP_NO = NULL;
+address2009$LOC_TYPE = NULL; address2009$NUM_MILE = NULL; address2009$ZIP4 = NULL
+address2009$APT_NO = NULL; address2009$X_STREET = NULL; address2009$STREET_PRE = NULL
+address2009$STREETSUF = NULL; address2009$STREETTYPE = NULL; address2009$STREETNAME = NULL; address2009$STATE = NULL; address2009$FDID = NULL; address2009$INC_NO = NULL
+
+tidy2009_1 <- left_join(bi2009, address2009, by = "SPID")
+tidy2009_2<- tidy2009_1[!duplicated(tidy2009_1), ]
+
+tidy2009_3 <- filter(tidy2009_2, !is.na(ZIP5))
+
+#First, apply the dataset zipcode
+zipcode1 <- data(zipcode)
+names(tidy2009_3)[names(tidy2009_3) == 'ZIP5'] <- 'zip'
+tidy2009_4 <- left_join(tidy2009_3, zipcode, by = "zip")
+##clean and remove unmatch rows (The zipcode dataset is correct, but the raw fire data might be wrong, there might be some error in state name, so we need to remove the error terms)
+tidy2009_5 <- subset(tidy2009_4, state == STATE) #I also successfully removed the rows with "00000" zipcode using this subset.
+#Check duplicate incidents and remove them, then remove useless columns
+tidy2009_6 <- tidy2009_5[!duplicated(tidy2009_5), ]
+tidy2009_6$STATE_ID = NULL; tidy2009_6$CITY = NULL; tidy2009_6$STATE = NULL
+
+ cc2009$EXP_NO = NULL; cc2009$SEQ_NUMBER= NULL; cc2009$FDID = NULL
+cc2009$VERSION = NULL; cc2009$RACE = NULL; cc2009$ETHNICITY = NULL
+cc2009$AFFILIAT = NULL; cc2009$INJ_DT_TIM = NULL; cc2009$CAUSE_INJ =NULL
+cc2009$HUM_FACT1 = NULL; cc2009$HUM_FACT2 = NULL; cc2009$HUM_FACT3 = NULL
+cc2009$HUM_FACT4 = NULL; cc2009$HUM_FACT5 = NULL; cc2009$HUM_FACT7 = NULL
+cc2009$HUM_FACT6 = NULL; cc2009$HUM_FACT8 = NULL; cc2009$FACT_INJ1 = NULL
+cc2009$FACT_INJ2 = NULL; cc2009$FACT_INJ3 = NULL; cc2009$ACTIV_INJ = NULL
+cc2009$LOC_INC = NULL; cc2009$GEN_LOC_IN = NULL; cc2009$STORY_INC = NULL
+cc2009$STORY_INJ = NULL; cc2009$SPC_LOC_IN = NULL; cc2009$INC_DATE = NULL
+cc2009$PRIM_SYMP = NULL; cc2009$CC_DISPOS = NULL; cc2009$INC_NO = NULL
+cc2009 <- subset(cc2009, SEV == 5)
+cc2009$SEV = NULL #all 5 (death)
+
+names(cc2009)[names(cc2009) == 'GENDER'] <- 'CC_GENDER'
+names(cc2009)[names(cc2009) == 'AGE'] <- 'CC_AGE'
+names(cc2009)[names(cc2009) == 'BODY_PART'] <- 'CC_BODY_PART'
+
+tidy2009_7 <- left_join(tidy2009_6, cc2009, by = "SPID")
+#Check duplicate
+tidy2009_8 <- tidy2009_7[!duplicated(tidy2009_7), ]
+
+fc2009$STATE = NULL; fc2009$FDID = NULL; fc2009$INC_DATE = NULL; fc2009$INC_NO = NULL
+fc2009$EXP_NO = NULL; fc2009$FF_SEQ_NO = NULL; fc2009$VERSION = NULL; 
+fc2009$INJ_DATE = NULL; fc2009$RESPONSES = NULL; fc2009$ASSIGNMENT = NULL
+fc2009$TAKEN_TO = NULL; fc2009$ACTIVITY = NULL ; fc2009$SYMPTOM = NULL
+fc2009$PABI = NULL; fc2009$CAUSE = NULL; fc2009$FACTOR = NULL
+fc2009$OBJECT = NULL; fc2009$WIO = NULL; fc2009$RELATION = NULL
+fc2009$STORY = NULL; fc2009$LOCATION = NULL; fc2009$VEHICLE = NULL
+fc2009$PROT_EQP = NULL
+
+fc2009 <- subset(fc2009, SEVERITY == 7)
+fc2009$SEVERITY = NULL #all 7 (death)
+
+names(fc2009)[names(fc2009) == 'GENDER'] <- 'FC_GENDER'
+names(fc2009)[names(fc2009) == 'AGE'] <- 'FC_AGE'
+names(fc2009)[names(fc2009) == 'PHYS_COND'] <- 'FC_PHYS_COND'
+names(fc2009)[names(fc2009) == 'CAREER'] <- 'FC_CAREER'
+
+tidy2009_9 <- left_join(tidy2009_8, fc2009, by = "SPID")
+#Check duplicate
+tidy2009_10 <- tidy2009_9[!duplicated(tidy2009_9), ]
+
+write.dbf(tidy2009_10, "tidyrf2009.dbf")
+```
+
+###Read and Clean 2010 Data
+```{r setup, include=FALSE}
+bi2010 <- read.dbf("2010/basicincident.dbf") #The basic incident
+address2010 <- read.dbf("2010/incidentaddress.dbf") #The incident address
+cc2010 <- read.dbf("2010/civiliancasualty.dbf") #The civilian casualty
+fc2010 <- read.dbf("2010/ffcasualty.dbf") #The fire service casualty
+
+bi2010$SPID <- paste0(bi2010$STATE,bi2010$INC_DATE, bi2010$FDID, bi2010$INC_NO)
+address2010$SPID<- paste0(address2010$STATE,address2010$INC_DATE, address2010$FDID, address2010$INC_NO)
+cc2010$SPID <- paste0(cc2010$STATE,cc2010$INC_DATE, cc2010$FDID, cc2010$INC_NO)
+fc2010$SPID <- paste0(fc2010$STATE,fc2010$FDID, fc2010$INC_DATE, fc2010$INC_NO)
+
+bi2010 <- filter(bi2010, PROP_USE == c(419,429,439,449,459,460,462,464,400))
+bi2010$DEATH_NO <- as.numeric(bi2010$FF_DEATH) + as.numeric(bi2010$OTH_DEATH)
+bi2010 <- filter(bi2010, DEATH_NO > 0)
+
+bi2010$VERSION = NULL ; bi2010$APP_MOD = NULL; bi2010$FDID = NULL;
+bi2010$DEPT_STA = NULL; bi2010$SUP_APP = NULL; bi2010$INC_DATE = NULL
+bi2010$ADD_WILD = NULL; bi2010$EMS_APP = NULL; bi2010$HAZ_REL = NULL
+bi2010$AID = NULL; bi2010$OTH_APP = NULL; bi2010$INC_NO = NULL
+bi2010$ALARM = NULL; bi2010$SUP_PER = NULL; bi2010$EXP_NO = NULL
+bi2010$INC_TYPE = NULL; bi2010$EMS_PER = NULL
+bi2010$ARRIVAL = NULL; bi2010$OTH_PER = NULL
+bi2010$INC_CONT = NULL; bi2010$RESOU_AID = NULL
+bi2010$EXP_NO = NULL; bi2010$PROP_LOSS = NULL
+bi2010$LU_CLEAR = NULL; bi2010$CONT_LOSS = NULL
+bi2010$SHIFT = NULL; bi2010$PROP_VAL = NULL
+bi2010$DISTRICT = NULL; bi2010$CONT_VAL = NULL
+bi2010$ALARMS = NULL; bi2010$DET_ALERT = NULL
+bi2010$ACT_TAK1 = NULL; bi2010$MIXED_USE = NULL; bi2010$CENSUS = NULL
+bi2010$ACT_TAK2 = NULL ; bi2010$ACT_TAK3 = NULL
+
+bi2010 <- bi2010[!duplicated(bi2010), ]
+
+address2010$INC_DATE = NULL; address2010$EXP_NO = NULL;
+address2010$LOC_TYPE = NULL; address2010$NUM_MILE = NULL; address2010$ZIP4 = NULL
+address2010$APT_NO = NULL; address2010$X_STREET = NULL; address2010$STREET_PRE = NULL
+address2010$STREETSUF = NULL; address2010$STREETTYPE = NULL; address2010$STREETNAME = NULL; address2010$STATE = NULL; address2010$FDID = NULL; address2010$INC_NO = NULL
+
+tidy2010_1 <- left_join(bi2010, address2010, by = "SPID")
+tidy2010_2<- tidy2010_1[!duplicated(tidy2010_1), ]
+
+tidy2010_3 <- filter(tidy2010_2, !is.na(ZIP5))
+
+#First, apply the dataset zipcode
+zipcode1 <- data(zipcode)
+names(tidy2010_3)[names(tidy2010_3) == 'ZIP5'] <- 'zip'
+tidy2010_4 <- left_join(tidy2010_3, zipcode, by = "zip")
+##clean and remove unmatch rows (The zipcode dataset is correct, but the raw fire data might be wrong, there might be some error in state name, so we need to remove the error terms)
+tidy2010_5 <- subset(tidy2010_4, state == STATE) #I also successfully removed the rows with "00000" zipcode using this subset.
+#Check duplicate incidents and remove them, then remove useless columns
+tidy2010_6 <- tidy2010_5[!duplicated(tidy2010_5), ]
+tidy2010_6$STATE_ID = NULL; tidy2010_6$CITY = NULL; tidy2010_6$STATE = NULL
+
+ cc2010$EXP_NO = NULL; cc2010$SEQ_NUMBER= NULL; cc2010$FDID = NULL
+cc2010$VERSION = NULL; cc2010$RACE = NULL; cc2010$ETHNICITY = NULL
+cc2010$AFFILIAT = NULL; cc2010$INJ_DT_TIM = NULL; cc2010$CAUSE_INJ =NULL
+cc2010$HUM_FACT1 = NULL; cc2010$HUM_FACT2 = NULL; cc2010$HUM_FACT3 = NULL
+cc2010$HUM_FACT4 = NULL; cc2010$HUM_FACT5 = NULL; cc2010$HUM_FACT7 = NULL
+cc2010$HUM_FACT6 = NULL; cc2010$HUM_FACT8 = NULL; cc2010$FACT_INJ1 = NULL
+cc2010$FACT_INJ2 = NULL; cc2010$FACT_INJ3 = NULL; cc2010$ACTIV_INJ = NULL
+cc2010$LOC_INC = NULL; cc2010$GEN_LOC_IN = NULL; cc2010$STORY_INC = NULL
+cc2010$STORY_INJ = NULL; cc2010$SPC_LOC_IN = NULL; cc2010$INC_DATE = NULL
+cc2010$PRIM_SYMP = NULL; cc2010$CC_DISPOS = NULL; cc2010$INC_NO = NULL
+cc2010 <- subset(cc2010, SEV == 5)
+cc2010$SEV = NULL #all 5 (death)
+
+names(cc2010)[names(cc2010) == 'GENDER'] <- 'CC_GENDER'
+names(cc2010)[names(cc2010) == 'AGE'] <- 'CC_AGE'
+names(cc2010)[names(cc2010) == 'BODY_PART'] <- 'CC_BODY_PART'
+
+tidy2010_7 <- left_join(tidy2010_6, cc2010, by = "SPID")
+#Check duplicate
+tidy2010_8 <- tidy2010_7[!duplicated(tidy2010_7), ]
+
+fc2010$STATE = NULL; fc2010$FDID = NULL; fc2010$INC_DATE = NULL; fc2010$INC_NO = NULL
+fc2010$EXP_NO = NULL; fc2010$FF_SEQ_NO = NULL; fc2010$VERSION = NULL; 
+fc2010$INJ_DATE = NULL; fc2010$RESPONSES = NULL; fc2010$ASSIGNMENT = NULL
+fc2010$TAKEN_TO = NULL; fc2010$ACTIVITY = NULL ; fc2010$SYMPTOM = NULL
+fc2010$PABI = NULL; fc2010$CAUSE = NULL; fc2010$FACTOR = NULL
+fc2010$OBJECT = NULL; fc2010$WIO = NULL; fc2010$RELATION = NULL
+fc2010$STORY = NULL; fc2010$LOCATION = NULL; fc2010$VEHICLE = NULL
+fc2010$PROT_EQP = NULL
+
+fc2010 <- subset(fc2010, SEVERITY == 7)
+fc2010$SEVERITY = NULL #all 7 (death)
+
+names(fc2010)[names(fc2010) == 'GENDER'] <- 'FC_GENDER'
+names(fc2010)[names(fc2010) == 'AGE'] <- 'FC_AGE'
+names(fc2010)[names(fc2010) == 'PHYS_COND'] <- 'FC_PHYS_COND'
+names(fc2010)[names(fc2010) == 'CAREER'] <- 'FC_CAREER'
+
+tidy2010_9 <- left_join(tidy2010_8, fc2010, by = "SPID")
+#Check duplicate
+tidy2010_10 <- tidy2010_9[!duplicated(tidy2010_9), ]
+
+write.dbf(tidy2010_10, "tidyrf2010.dbf")
+```
+
+###Read and Clean 2011 Data
+```{r setup, include=FALSE}
+bi2011 <- read.dbf("2011/basicincident.dbf") #The basic incident
+address2011 <- read.dbf("2011/incidentaddress.dbf") #The incident address
+cc2011 <- read.dbf("2011/civiliancasualty.dbf") #The civilian casualty
+fc2011 <- read.dbf("2011/ffcasualty.dbf") #The fire service casualty
+
+bi2011$SPID <- paste0(bi2011$STATE,bi2011$INC_DATE, bi2011$FDID, bi2011$INC_NO)
+address2011$SPID<- paste0(address2011$STATE,address2011$INC_DATE, address2011$FDID, address2011$INC_NO)
+cc2011$SPID <- paste0(cc2011$STATE,cc2011$INC_DATE, cc2011$FDID, cc2011$INC_NO)
+fc2011$SPID <- paste0(fc2011$STATE,fc2011$FDID, fc2011$INC_DATE, fc2011$INC_NO)
+
+bi2011 <- filter(bi2011, PROP_USE == c(419,429,439,449,459,460,462,464,400))
+bi2011$DEATH_NO <- as.numeric(bi2011$FF_DEATH) + as.numeric(bi2011$OTH_DEATH)
+bi2011 <- filter(bi2011, DEATH_NO > 0)
+
+bi2011$VERSION = NULL ; bi2011$APP_MOD = NULL; bi2011$FDID = NULL;
+bi2011$DEPT_STA = NULL; bi2011$SUP_APP = NULL; bi2011$INC_DATE = NULL
+bi2011$ADD_WILD = NULL; bi2011$EMS_APP = NULL; bi2011$HAZ_REL = NULL
+bi2011$AID = NULL; bi2011$OTH_APP = NULL; bi2011$INC_NO = NULL
+bi2011$ALARM = NULL; bi2011$SUP_PER = NULL; bi2011$EXP_NO = NULL
+bi2011$INC_TYPE = NULL; bi2011$EMS_PER = NULL
+bi2011$ARRIVAL = NULL; bi2011$OTH_PER = NULL
+bi2011$INC_CONT = NULL; bi2011$RESOU_AID = NULL
+bi2011$EXP_NO = NULL; bi2011$PROP_LOSS = NULL
+bi2011$LU_CLEAR = NULL; bi2011$CONT_LOSS = NULL
+bi2011$SHIFT = NULL; bi2011$PROP_VAL = NULL
+bi2011$DISTRICT = NULL; bi2011$CONT_VAL = NULL
+bi2011$ALARMS = NULL; bi2011$DET_ALERT = NULL
+bi2011$ACT_TAK1 = NULL; bi2011$MIXED_USE = NULL; bi2011$CENSUS = NULL
+bi2011$ACT_TAK2 = NULL ; bi2011$ACT_TAK3 = NULL
+
+bi2011 <- bi2011[!duplicated(bi2011), ]
+
+address2011$INC_DATE = NULL; address2011$EXP_NO = NULL;
+address2011$LOC_TYPE = NULL; address2011$NUM_MILE = NULL; address2011$ZIP4 = NULL
+address2011$APT_NO = NULL; address2011$X_STREET = NULL; address2011$STREET_PRE = NULL
+address2011$STREETSUF = NULL; address2011$STREETTYPE = NULL; address2011$STREETNAME = NULL; address2011$STATE = NULL; address2011$FDID = NULL; address2011$INC_NO = NULL
+
+tidy2011_1 <- left_join(bi2011, address2011, by = "SPID")
+tidy2011_2<- tidy2011_1[!duplicated(tidy2011_1), ]
+
+tidy2011_3 <- filter(tidy2011_2, !is.na(ZIP5))
+
+#First, apply the dataset zipcode
+zipcode1 <- data(zipcode)
+names(tidy2011_3)[names(tidy2011_3) == 'ZIP5'] <- 'zip'
+tidy2011_4 <- left_join(tidy2011_3, zipcode, by = "zip")
+##clean and remove unmatch rows (The zipcode dataset is correct, but the raw fire data might be wrong, there might be some error in state name, so we need to remove the error terms)
+tidy2011_5 <- subset(tidy2011_4, state == STATE) #I also successfully removed the rows with "00000" zipcode using this subset.
+#Check duplicate incidents and remove them, then remove useless columns
+tidy2011_6 <- tidy2011_5[!duplicated(tidy2011_5), ]
+tidy2011_6$STATE_ID = NULL; tidy2011_6$CITY = NULL; tidy2011_6$STATE = NULL
+
+ cc2011$EXP_NO = NULL; cc2011$SEQ_NUMBER= NULL; cc2011$FDID = NULL
+cc2011$VERSION = NULL; cc2011$RACE = NULL; cc2011$ETHNICITY = NULL
+cc2011$AFFILIAT = NULL; cc2011$INJ_DT_TIM = NULL; cc2011$CAUSE_INJ =NULL
+cc2011$HUM_FACT1 = NULL; cc2011$HUM_FACT2 = NULL; cc2011$HUM_FACT3 = NULL
+cc2011$HUM_FACT4 = NULL; cc2011$HUM_FACT5 = NULL; cc2011$HUM_FACT7 = NULL
+cc2011$HUM_FACT6 = NULL; cc2011$HUM_FACT8 = NULL; cc2011$FACT_INJ1 = NULL
+cc2011$FACT_INJ2 = NULL; cc2011$FACT_INJ3 = NULL; cc2011$ACTIV_INJ = NULL
+cc2011$LOC_INC = NULL; cc2011$GEN_LOC_IN = NULL; cc2011$STORY_INC = NULL
+cc2011$STORY_INJ = NULL; cc2011$SPC_LOC_IN = NULL; cc2011$INC_DATE = NULL
+cc2011$PRIM_SYMP = NULL; cc2011$CC_DISPOS = NULL; cc2011$INC_NO = NULL
+cc2011 <- subset(cc2011, SEV == 5)
+cc2011$SEV = NULL #all 5 (death)
+
+names(cc2011)[names(cc2011) == 'GENDER'] <- 'CC_GENDER'
+names(cc2011)[names(cc2011) == 'AGE'] <- 'CC_AGE'
+names(cc2011)[names(cc2011) == 'BODY_PART'] <- 'CC_BODY_PART'
+
+tidy2011_7 <- left_join(tidy2011_6, cc2011, by = "SPID")
+#Check duplicate
+tidy2011_8 <- tidy2011_7[!duplicated(tidy2011_7), ]
+
+fc2011$STATE = NULL; fc2011$FDID = NULL; fc2011$INC_DATE = NULL; fc2011$INC_NO = NULL
+fc2011$EXP_NO = NULL; fc2011$FF_SEQ_NO = NULL; fc2011$VERSION = NULL; 
+fc2011$INJ_DATE = NULL; fc2011$RESPONSES = NULL; fc2011$ASSIGNMENT = NULL
+fc2011$TAKEN_TO = NULL; fc2011$ACTIVITY = NULL ; fc2011$SYMPTOM = NULL
+fc2011$PABI = NULL; fc2011$CAUSE = NULL; fc2011$FACTOR = NULL
+fc2011$OBJECT = NULL; fc2011$WIO = NULL; fc2011$RELATION = NULL
+fc2011$STORY = NULL; fc2011$LOCATION = NULL; fc2011$VEHICLE = NULL
+fc2011$PROT_EQP = NULL
+
+fc2011 <- subset(fc2011, SEVERITY == 7)
+fc2011$SEVERITY = NULL #all 7 (death)
+
+names(fc2011)[names(fc2011) == 'GENDER'] <- 'FC_GENDER'
+names(fc2011)[names(fc2011) == 'AGE'] <- 'FC_AGE'
+names(fc2011)[names(fc2011) == 'PHYS_COND'] <- 'FC_PHYS_COND'
+names(fc2011)[names(fc2011) == 'CAREER'] <- 'FC_CAREER'
+
+tidy2011_9 <- left_join(tidy2011_8, fc2011, by = "SPID")
+#Check duplicate
+tidy2011_10 <- tidy2011_9[!duplicated(tidy2011_9), ]
+
+write.dbf(tidy2011_10, "tidyrf2011.dbf")
+```
+
+###Read and Clean 2012 Data
+####Note: from 2012 to 2015, we don't have dbf files anymore. We need to read text files.
+```{r setup, include=FALSE}
+bi2012 <- read.table("2012/basicincident.txt", header = TRUE, sep = "^") #The basic incident
+address2012 <- read.table("2012/incidentaddress.txt", header = TRUE, sep = "^") #The incident address
+cc2012 <- read.table("2012/civiliancasualty.txt", header = TRUE, sep = "^") #The civilian casualty
+fc2012 <- read.table("2012/ffcasualty.txt", header = TRUE, sep = "^") #The fire service casualty
+
+bi2012$SPID <- paste0(bi2012$STATE,bi2012$INC_DATE, bi2012$FDID, bi2012$INC_NO)
+address2012$SPID<- paste0(address2012$STATE,address2012$INC_DATE, address2012$FDID, address2012$INC_NO)
+cc2012$SPID <- paste0(cc2012$STATE,cc2012$INC_DATE, cc2012$FDID, cc2012$INC_NO)
+fc2012$SPID <- paste0(fc2012$STATE,fc2012$FDID, fc2012$INC_DATE, fc2012$INC_NO)
+
+bi2012 <- filter(bi2012, PROP_USE == c(419,429,439,449,459,460,462,464,400))
+bi2012$DEATH_NO <- as.numeric(bi2012$FF_DEATH) + as.numeric(bi2012$OTH_DEATH)
+bi2012 <- filter(bi2012, DEATH_NO > 0)
+
+bi2012$VERSION = NULL ; bi2012$APP_MOD = NULL; bi2012$FDID = NULL;
+bi2012$DEPT_STA = NULL; bi2012$SUP_APP = NULL; bi2012$INC_DATE = NULL
+bi2012$ADD_WILD = NULL; bi2012$EMS_APP = NULL; bi2012$HAZ_REL = NULL
+bi2012$AID = NULL; bi2012$OTH_APP = NULL; bi2012$INC_NO = NULL
+bi2012$ALARM = NULL; bi2012$SUP_PER = NULL; bi2012$EXP_NO = NULL
+bi2012$INC_TYPE = NULL; bi2012$EMS_PER = NULL
+bi2012$ARRIVAL = NULL; bi2012$OTH_PER = NULL
+bi2012$INC_CONT = NULL; bi2012$RESOU_AID = NULL
+bi2012$EXP_NO = NULL; bi2012$PROP_LOSS = NULL
+bi2012$LU_CLEAR = NULL; bi2012$CONT_LOSS = NULL
+bi2012$SHIFT = NULL; bi2012$PROP_VAL = NULL
+bi2012$DISTRICT = NULL; bi2012$CONT_VAL = NULL
+bi2012$ALARMS = NULL; bi2012$DET_ALERT = NULL
+bi2012$ACT_TAK1 = NULL; bi2012$MIXED_USE = NULL; bi2012$CENSUS = NULL
+bi2012$ACT_TAK2 = NULL ; bi2012$ACT_TAK3 = NULL
+
+bi2012 <- bi2012[!duplicated(bi2012), ]
+
+address2012$INC_DATE = NULL; address2012$EXP_NO = NULL;
+address2012$LOC_TYPE = NULL; address2012$NUM_MILE = NULL; address2012$ZIP4 = NULL
+address2012$APT_NO = NULL; address2012$X_STREET = NULL; address2012$STREET_PRE = NULL
+address2012$STREETSUF = NULL; address2012$STREETTYPE = NULL; address2012$STREETNAME = NULL; address2012$STATE = NULL; address2012$FDID = NULL; address2012$INC_NO = NULL
+
+tidy2012_1 <- left_join(bi2012, address2012, by = "SPID")
+tidy2012_2<- tidy2012_1[!duplicated(tidy2012_1), ]
+
+tidy2012_3 <- filter(tidy2012_2, !is.na(ZIP5))
+
+#First, apply the dataset zipcode
+zipcode1 <- data(zipcode)
+names(tidy2012_3)[names(tidy2012_3) == 'ZIP5'] <- 'zip'
+tidy2012_4 <- left_join(tidy2012_3, zipcode, by = "zip")
+##clean and remove unmatch rows (The zipcode dataset is correct, but the raw fire data might be wrong, there might be some error in state name, so we need to remove the error terms)
+tidy2012_5 <- subset(tidy2012_4, state == STATE) #I also successfully removed the rows with "00000" zipcode using this subset.
+#Check duplicate incidents and remove them, then remove useless columns
+tidy2012_6 <- tidy2012_5[!duplicated(tidy2012_5), ]
+tidy2012_6$STATE_ID = NULL; tidy2012_6$CITY = NULL; tidy2012_6$STATE = NULL
+
+ cc2012$EXP_NO = NULL; cc2012$SEQ_NUMBER= NULL; cc2012$FDID = NULL
+cc2012$VERSION = NULL; cc2012$RACE = NULL; cc2012$ETHNICITY = NULL
+cc2012$AFFILIAT = NULL; cc2012$INJ_DT_TIM = NULL; cc2012$CAUSE_INJ =NULL
+cc2012$HUM_FACT1 = NULL; cc2012$HUM_FACT2 = NULL; cc2012$HUM_FACT3 = NULL
+cc2012$HUM_FACT4 = NULL; cc2012$HUM_FACT5 = NULL; cc2012$HUM_FACT7 = NULL
+cc2012$HUM_FACT6 = NULL; cc2012$HUM_FACT8 = NULL; cc2012$FACT_INJ1 = NULL
+cc2012$FACT_INJ2 = NULL; cc2012$FACT_INJ3 = NULL; cc2012$ACTIV_INJ = NULL
+cc2012$LOC_INC = NULL; cc2012$GEN_LOC_IN = NULL; cc2012$STORY_INC = NULL
+cc2012$STORY_INJ = NULL; cc2012$SPC_LOC_IN = NULL; cc2012$INC_DATE = NULL
+cc2012$PRIM_SYMP = NULL; cc2012$CC_DISPOS = NULL; cc2012$INC_NO = NULL
+cc2012 <- subset(cc2012, SEV == 5)
+cc2012$SEV = NULL #all 5 (death)
+
+names(cc2012)[names(cc2012) == 'GENDER'] <- 'CC_GENDER'
+names(cc2012)[names(cc2012) == 'AGE'] <- 'CC_AGE'
+names(cc2012)[names(cc2012) == 'BODY_PART'] <- 'CC_BODY_PART'
+
+tidy2012_7 <- left_join(tidy2012_6, cc2012, by = "SPID")
+#Check duplicate
+tidy2012_8 <- tidy2012_7[!duplicated(tidy2012_7), ]
+
+fc2012$STATE = NULL; fc2012$FDID = NULL; fc2012$INC_DATE = NULL; fc2012$INC_NO = NULL
+fc2012$EXP_NO = NULL; fc2012$FF_SEQ_NO = NULL; fc2012$VERSION = NULL; 
+fc2012$INJ_DATE = NULL; fc2012$RESPONSES = NULL; fc2012$ASSIGNMENT = NULL
+fc2012$TAKEN_TO = NULL; fc2012$ACTIVITY = NULL ; fc2012$SYMPTOM = NULL
+fc2012$PABI = NULL; fc2012$CAUSE = NULL; fc2012$FACTOR = NULL
+fc2012$OBJECT = NULL; fc2012$WIO = NULL; fc2012$RELATION = NULL
+fc2012$STORY = NULL; fc2012$LOCATION = NULL; fc2012$VEHICLE = NULL
+fc2012$PROT_EQP = NULL
+
+fc2012 <- subset(fc2012, SEVERITY == 7)
+fc2012$SEVERITY = NULL #all 7 (death)
+
+names(fc2012)[names(fc2012) == 'GENDER'] <- 'FC_GENDER'
+names(fc2012)[names(fc2012) == 'AGE'] <- 'FC_AGE'
+names(fc2012)[names(fc2012) == 'PHYS_COND'] <- 'FC_PHYS_COND'
+names(fc2012)[names(fc2012) == 'CAREER'] <- 'FC_CAREER'
+
+tidy2012_9 <- left_join(tidy2012_8, fc2012, by = "SPID")
+#Check duplicate
+tidy2012_10 <- tidy2012_9[!duplicated(tidy2012_9), ]
+
+write.dbf(tidy2012_10, "tidyrf2012.dbf")
+```
+
+###Read and Clean 2013 Data
+```{r setup, include=FALSE}
+bi2013 <- read.table("2013/basicincident.txt", header = TRUE, sep = "^") #The basic incident
+address2013 <- read.table("2013/incidentaddress.txt", header = TRUE, sep = "^") #The incident address
+cc2013 <- read.table("2013/civiliancasualty.txt", header = TRUE, sep = "^") #The civilian casualty
+fc2013 <- read.table("2013/ffcasualty.txt", header = TRUE, sep = "^") #The fire service casualty
+
+bi2013$SPID <- paste0(bi2013$STATE,bi2013$INC_DATE, bi2013$FDID, bi2013$INC_NO)
+address2013$SPID<- paste0(address2013$STATE,address2013$INC_DATE, address2013$FDID, address2013$INC_NO)
+cc2013$SPID <- paste0(cc2013$STATE,cc2013$INC_DATE, cc2013$FDID, cc2013$INC_NO)
+fc2013$SPID <- paste0(fc2013$STATE,fc2013$FDID, fc2013$INC_DATE, fc2013$INC_NO)
+
+bi2013 <- filter(bi2013, PROP_USE == c(419,429,439,449,459,460,462,464,400))
+bi2013$DEATH_NO <- as.numeric(bi2013$FF_DEATH) + as.numeric(bi2013$OTH_DEATH)
+bi2013 <- filter(bi2013, DEATH_NO > 0)
+
+bi2013$VERSION = NULL ; bi2013$APP_MOD = NULL; bi2013$FDID = NULL;
+bi2013$DEPT_STA = NULL; bi2013$SUP_APP = NULL; bi2013$INC_DATE = NULL
+bi2013$ADD_WILD = NULL; bi2013$EMS_APP = NULL; bi2013$HAZ_REL = NULL
+bi2013$AID = NULL; bi2013$OTH_APP = NULL; bi2013$INC_NO = NULL
+bi2013$ALARM = NULL; bi2013$SUP_PER = NULL; bi2013$EXP_NO = NULL
+bi2013$INC_TYPE = NULL; bi2013$EMS_PER = NULL
+bi2013$ARRIVAL = NULL; bi2013$OTH_PER = NULL
+bi2013$INC_CONT = NULL; bi2013$RESOU_AID = NULL
+bi2013$EXP_NO = NULL; bi2013$PROP_LOSS = NULL
+bi2013$LU_CLEAR = NULL; bi2013$CONT_LOSS = NULL
+bi2013$SHIFT = NULL; bi2013$PROP_VAL = NULL
+bi2013$DISTRICT = NULL; bi2013$CONT_VAL = NULL
+bi2013$ALARMS = NULL; bi2013$DET_ALERT = NULL
+bi2013$ACT_TAK1 = NULL; bi2013$MIXED_USE = NULL; bi2013$CENSUS = NULL
+bi2013$ACT_TAK2 = NULL ; bi2013$ACT_TAK3 = NULL
+
+bi2013 <- bi2013[!duplicated(bi2013), ]
+
+address2013$INC_DATE = NULL; address2013$EXP_NO = NULL;
+address2013$LOC_TYPE = NULL; address2013$NUM_MILE = NULL; address2013$ZIP4 = NULL
+address2013$APT_NO = NULL; address2013$X_STREET = NULL; address2013$STREET_PRE = NULL
+address2013$STREETSUF = NULL; address2013$STREETTYPE = NULL; address2013$STREETNAME = NULL; address2013$STATE = NULL; address2013$FDID = NULL; address2013$INC_NO = NULL
+
+tidy2013_1 <- left_join(bi2013, address2013, by = "SPID")
+tidy2013_2<- tidy2013_1[!duplicated(tidy2013_1), ]
+
+tidy2013_3 <- filter(tidy2013_2, !is.na(ZIP5))
+
+#First, apply the dataset zipcode
+zipcode1 <- data(zipcode)
+names(tidy2013_3)[names(tidy2013_3) == 'ZIP5'] <- 'zip'
+tidy2013_4 <- left_join(tidy2013_3, zipcode, by = "zip")
+##clean and remove unmatch rows (The zipcode dataset is correct, but the raw fire data might be wrong, there might be some error in state name, so we need to remove the error terms)
+tidy2013_5 <- subset(tidy2013_4, state == STATE) #I also successfully removed the rows with "00000" zipcode using this subset.
+#Check duplicate incidents and remove them, then remove useless columns
+tidy2013_6 <- tidy2013_5[!duplicated(tidy2013_5), ]
+tidy2013_6$STATE_ID = NULL; tidy2013_6$CITY = NULL; tidy2013_6$STATE = NULL
+
+ cc2013$EXP_NO = NULL; cc2013$SEQ_NUMBER= NULL; cc2013$FDID = NULL
+cc2013$VERSION = NULL; cc2013$RACE = NULL; cc2013$ETHNICITY = NULL
+cc2013$AFFILIAT = NULL; cc2013$INJ_DT_TIM = NULL; cc2013$CAUSE_INJ =NULL
+cc2013$HUM_FACT1 = NULL; cc2013$HUM_FACT2 = NULL; cc2013$HUM_FACT3 = NULL
+cc2013$HUM_FACT4 = NULL; cc2013$HUM_FACT5 = NULL; cc2013$HUM_FACT7 = NULL
+cc2013$HUM_FACT6 = NULL; cc2013$HUM_FACT8 = NULL; cc2013$FACT_INJ1 = NULL
+cc2013$FACT_INJ2 = NULL; cc2013$FACT_INJ3 = NULL; cc2013$ACTIV_INJ = NULL
+cc2013$LOC_INC = NULL; cc2013$GEN_LOC_IN = NULL; cc2013$STORY_INC = NULL
+cc2013$STORY_INJ = NULL; cc2013$SPC_LOC_IN = NULL; cc2013$INC_DATE = NULL
+cc2013$PRIM_SYMP = NULL; cc2013$CC_DISPOS = NULL; cc2013$INC_NO = NULL
+cc2013 <- subset(cc2013, SEV == 5)
+cc2013$SEV = NULL #all 5 (death)
+
+names(cc2013)[names(cc2013) == 'GENDER'] <- 'CC_GENDER'
+names(cc2013)[names(cc2013) == 'AGE'] <- 'CC_AGE'
+names(cc2013)[names(cc2013) == 'BODY_PART'] <- 'CC_BODY_PART'
+
+tidy2013_7 <- left_join(tidy2013_6, cc2013, by = "SPID")
+#Check duplicate
+tidy2013_8 <- tidy2013_7[!duplicated(tidy2013_7), ]
+
+fc2013$STATE = NULL; fc2013$FDID = NULL; fc2013$INC_DATE = NULL; fc2013$INC_NO = NULL
+fc2013$EXP_NO = NULL; fc2013$FF_SEQ_NO = NULL; fc2013$VERSION = NULL; 
+fc2013$INJ_DATE = NULL; fc2013$RESPONSES = NULL; fc2013$ASSIGNMENT = NULL
+fc2013$TAKEN_TO = NULL; fc2013$ACTIVITY = NULL ; fc2013$SYMPTOM = NULL
+fc2013$PABI = NULL; fc2013$CAUSE = NULL; fc2013$FACTOR = NULL
+fc2013$OBJECT = NULL; fc2013$WIO = NULL; fc2013$RELATION = NULL
+fc2013$STORY = NULL; fc2013$LOCATION = NULL; fc2013$VEHICLE = NULL
+fc2013$PROT_EQP = NULL
+
+fc2013 <- subset(fc2013, SEVERITY == 7)
+fc2013$SEVERITY = NULL #all 7 (death)
+
+names(fc2013)[names(fc2013) == 'GENDER'] <- 'FC_GENDER'
+names(fc2013)[names(fc2013) == 'AGE'] <- 'FC_AGE'
+names(fc2013)[names(fc2013) == 'PHYS_COND'] <- 'FC_PHYS_COND'
+names(fc2013)[names(fc2013) == 'CAREER'] <- 'FC_CAREER'
+
+tidy2013_9 <- left_join(tidy2013_8, fc2013, by = "SPID")
+#Check duplicate
+tidy2013_10 <- tidy2013_9[!duplicated(tidy2013_9), ]
+
+write.dbf(tidy2013_10, "tidyrf2013.dbf")
+```
+
+###Read and Clean 2014 Data
+```{r setup, include=FALSE}
+bi2014 <- read.table("2014/basicincident.txt", header = TRUE, sep = "^") #The basic incident
+address2014 <- read.table("2014/incidentaddress.txt", header = TRUE, sep = "^") #The incident address
+cc2014 <- read.table("2014/civiliancasualty.txt", header = TRUE, sep = "^") #The civilian casualty
+fc2014 <- read.table("2014/ffcasualty.txt", header = TRUE, sep = "^") #The fire service casualty
+
+bi2014$SPID <- paste0(bi2014$STATE,bi2014$INC_DATE, bi2014$FDID, bi2014$INC_NO)
+address2014$SPID<- paste0(address2014$STATE,address2014$INC_DATE, address2014$FDID, address2014$INC_NO)
+cc2014$SPID <- paste0(cc2014$STATE,cc2014$INC_DATE, cc2014$FDID, cc2014$INC_NO)
+fc2014$SPID <- paste0(fc2014$STATE,fc2014$FDID, fc2014$INC_DATE, fc2014$INC_NO)
+
+bi2014 <- filter(bi2014, PROP_USE == c(419,429,439,449,459,460,462,464,400))
+bi2014$DEATH_NO <- as.numeric(bi2014$FF_DEATH) + as.numeric(bi2014$OTH_DEATH)
+bi2014 <- filter(bi2014, DEATH_NO > 0)
+
+bi2014$VERSION = NULL ; bi2014$APP_MOD = NULL; bi2014$FDID = NULL;
+bi2014$DEPT_STA = NULL; bi2014$SUP_APP = NULL; bi2014$INC_DATE = NULL
+bi2014$ADD_WILD = NULL; bi2014$EMS_APP = NULL; bi2014$HAZ_REL = NULL
+bi2014$AID = NULL; bi2014$OTH_APP = NULL; bi2014$INC_NO = NULL
+bi2014$ALARM = NULL; bi2014$SUP_PER = NULL; bi2014$EXP_NO = NULL
+bi2014$INC_TYPE = NULL; bi2014$EMS_PER = NULL
+bi2014$ARRIVAL = NULL; bi2014$OTH_PER = NULL
+bi2014$INC_CONT = NULL; bi2014$RESOU_AID = NULL
+bi2014$EXP_NO = NULL; bi2014$PROP_LOSS = NULL
+bi2014$LU_CLEAR = NULL; bi2014$CONT_LOSS = NULL
+bi2014$SHIFT = NULL; bi2014$PROP_VAL = NULL
+bi2014$DISTRICT = NULL; bi2014$CONT_VAL = NULL
+bi2014$ALARMS = NULL; bi2014$DET_ALERT = NULL
+bi2014$ACT_TAK1 = NULL; bi2014$MIXED_USE = NULL; bi2014$CENSUS = NULL
+bi2014$ACT_TAK2 = NULL ; bi2014$ACT_TAK3 = NULL
+
+bi2014 <- bi2014[!duplicated(bi2014), ]
+
+address2014$INC_DATE = NULL; address2014$EXP_NO = NULL;
+address2014$LOC_TYPE = NULL; address2014$NUM_MILE = NULL; address2014$ZIP4 = NULL
+address2014$APT_NO = NULL; address2014$X_STREET = NULL; address2014$STREET_PRE = NULL
+address2014$STREETSUF = NULL; address2014$STREETTYPE = NULL; address2014$STREETNAME = NULL; address2014$STATE = NULL; address2014$FDID = NULL; address2014$INC_NO = NULL
+
+tidy2014_1 <- left_join(bi2014, address2014, by = "SPID")
+tidy2014_2<- tidy2014_1[!duplicated(tidy2014_1), ]
+
+tidy2014_3 <- filter(tidy2014_2, !is.na(ZIP5))
+
+#First, apply the dataset zipcode
+zipcode1 <- data(zipcode)
+names(tidy2014_3)[names(tidy2014_3) == 'ZIP5'] <- 'zip'
+tidy2014_4 <- left_join(tidy2014_3, zipcode, by = "zip")
+##clean and remove unmatch rows (The zipcode dataset is correct, but the raw fire data might be wrong, there might be some error in state name, so we need to remove the error terms)
+tidy2014_5 <- subset(tidy2014_4, state == STATE) #I also successfully removed the rows with "00000" zipcode using this subset.
+#Check duplicate incidents and remove them, then remove useless columns
+tidy2014_6 <- tidy2014_5[!duplicated(tidy2014_5), ]
+tidy2014_6$STATE_ID = NULL; tidy2014_6$CITY = NULL; tidy2014_6$STATE = NULL
+
+ cc2014$EXP_NO = NULL; cc2014$SEQ_NUMBER= NULL; cc2014$FDID = NULL
+cc2014$VERSION = NULL; cc2014$RACE = NULL; cc2014$ETHNICITY = NULL
+cc2014$AFFILIAT = NULL; cc2014$INJ_DT_TIM = NULL; cc2014$CAUSE_INJ =NULL
+cc2014$HUM_FACT1 = NULL; cc2014$HUM_FACT2 = NULL; cc2014$HUM_FACT3 = NULL
+cc2014$HUM_FACT4 = NULL; cc2014$HUM_FACT5 = NULL; cc2014$HUM_FACT7 = NULL
+cc2014$HUM_FACT6 = NULL; cc2014$HUM_FACT8 = NULL; cc2014$FACT_INJ1 = NULL
+cc2014$FACT_INJ2 = NULL; cc2014$FACT_INJ3 = NULL; cc2014$ACTIV_INJ = NULL
+cc2014$LOC_INC = NULL; cc2014$GEN_LOC_IN = NULL; cc2014$STORY_INC = NULL
+cc2014$STORY_INJ = NULL; cc2014$SPC_LOC_IN = NULL; cc2014$INC_DATE = NULL
+cc2014$PRIM_SYMP = NULL; cc2014$CC_DISPOS = NULL; cc2014$INC_NO = NULL
+cc2014 <- subset(cc2014, SEV == 5)
+cc2014$SEV = NULL #all 5 (death)
+
+names(cc2014)[names(cc2014) == 'GENDER'] <- 'CC_GENDER'
+names(cc2014)[names(cc2014) == 'AGE'] <- 'CC_AGE'
+names(cc2014)[names(cc2014) == 'BODY_PART'] <- 'CC_BODY_PART'
+
+tidy2014_7 <- left_join(tidy2014_6, cc2014, by = "SPID")
+#Check duplicate
+tidy2014_8 <- tidy2014_7[!duplicated(tidy2014_7), ]
+
+fc2014$STATE = NULL; fc2014$FDID = NULL; fc2014$INC_DATE = NULL; fc2014$INC_NO = NULL
+fc2014$EXP_NO = NULL; fc2014$FF_SEQ_NO = NULL; fc2014$VERSION = NULL; 
+fc2014$INJ_DATE = NULL; fc2014$RESPONSES = NULL; fc2014$ASSIGNMENT = NULL
+fc2014$TAKEN_TO = NULL; fc2014$ACTIVITY = NULL ; fc2014$SYMPTOM = NULL
+fc2014$PABI = NULL; fc2014$CAUSE = NULL; fc2014$FACTOR = NULL
+fc2014$OBJECT = NULL; fc2014$WIO = NULL; fc2014$RELATION = NULL
+fc2014$STORY = NULL; fc2014$LOCATION = NULL; fc2014$VEHICLE = NULL
+fc2014$PROT_EQP = NULL
+
+fc2014 <- subset(fc2014, SEVERITY == 7)
+fc2014$SEVERITY = NULL #all 7 (death)
+
+names(fc2014)[names(fc2014) == 'GENDER'] <- 'FC_GENDER'
+names(fc2014)[names(fc2014) == 'AGE'] <- 'FC_AGE'
+names(fc2014)[names(fc2014) == 'PHYS_COND'] <- 'FC_PHYS_COND'
+names(fc2014)[names(fc2014) == 'CAREER'] <- 'FC_CAREER'
+
+tidy2014_9 <- left_join(tidy2014_8, fc2014, by = "SPID")
+#Check duplicate
+tidy2014_10 <- tidy2014_9[!duplicated(tidy2014_9), ]
+
+write.dbf(tidy2014_10, "tidyrf2014.dbf")
+```
+
+###Read and Clean 2015 Data
+```{r setup, include=FALSE}
+bi2015 <- read.table("2015/basicincident.txt", header = TRUE, sep = "^") #The basic incident
+address2015 <- read.table("2015/incidentaddress.txt", header = TRUE, sep = "^") #The incident address
+cc2015 <- read.table("2015/civiliancasualty.txt", header = TRUE, sep = "^") #The civilian casualty
+fc2015 <- read.table("2015/ffcasualty.txt", header = TRUE, sep = "^") #The fire service casualty
+
+bi2015$SPID <- paste0(bi2015$STATE,bi2015$INC_DATE, bi2015$FDID, bi2015$INC_NO)
+address2015$SPID<- paste0(address2015$STATE,address2015$INC_DATE, address2015$FDID, address2015$INC_NO)
+cc2015$SPID <- paste0(cc2015$STATE,cc2015$INC_DATE, cc2015$FDID, cc2015$INC_NO)
+fc2015$SPID <- paste0(fc2015$STATE,fc2015$FDID, fc2015$INC_DATE, fc2015$INC_NO)
+
+bi2015 <- filter(bi2015, PROP_USE == c(419,429,439,449,459,460,462,464,400))
+bi2015$DEATH_NO <- as.numeric(bi2015$FF_DEATH) + as.numeric(bi2015$OTH_DEATH)
+bi2015 <- filter(bi2015, DEATH_NO > 0)
+
+bi2015$VERSION = NULL ; bi2015$APP_MOD = NULL; bi2015$FDID = NULL;
+bi2015$DEPT_STA = NULL; bi2015$SUP_APP = NULL; bi2015$INC_DATE = NULL
+bi2015$ADD_WILD = NULL; bi2015$EMS_APP = NULL; bi2015$HAZ_REL = NULL
+bi2015$AID = NULL; bi2015$OTH_APP = NULL; bi2015$INC_NO = NULL
+bi2015$ALARM = NULL; bi2015$SUP_PER = NULL; bi2015$EXP_NO = NULL
+bi2015$INC_TYPE = NULL; bi2015$EMS_PER = NULL
+bi2015$ARRIVAL = NULL; bi2015$OTH_PER = NULL
+bi2015$INC_CONT = NULL; bi2015$RESOU_AID = NULL
+bi2015$EXP_NO = NULL; bi2015$PROP_LOSS = NULL
+bi2015$LU_CLEAR = NULL; bi2015$CONT_LOSS = NULL
+bi2015$SHIFT = NULL; bi2015$PROP_VAL = NULL
+bi2015$DISTRICT = NULL; bi2015$CONT_VAL = NULL
+bi2015$ALARMS = NULL; bi2015$DET_ALERT = NULL
+bi2015$ACT_TAK1 = NULL; bi2015$MIXED_USE = NULL; bi2015$CENSUS = NULL
+bi2015$ACT_TAK2 = NULL ; bi2015$ACT_TAK3 = NULL
+
+bi2015 <- bi2015[!duplicated(bi2015), ]
+
+address2015$INC_DATE = NULL; address2015$EXP_NO = NULL;
+address2015$LOC_TYPE = NULL; address2015$NUM_MILE = NULL; address2015$ZIP4 = NULL
+address2015$APT_NO = NULL; address2015$X_STREET = NULL; address2015$STREET_PRE = NULL
+address2015$STREETSUF = NULL; address2015$STREETTYPE = NULL; address2015$STREETNAME = NULL; address2015$STATE = NULL; address2015$FDID = NULL; address2015$INC_NO = NULL
+
+tidy2015_1 <- left_join(bi2015, address2015, by = "SPID")
+tidy2015_2<- tidy2015_1[!duplicated(tidy2015_1), ]
+
+tidy2015_3 <- filter(tidy2015_2, !is.na(ZIP5))
+
+#First, apply the dataset zipcode
+zipcode1 <- data(zipcode)
+names(tidy2015_3)[names(tidy2015_3) == 'ZIP5'] <- 'zip'
+tidy2015_4 <- left_join(tidy2015_3, zipcode, by = "zip")
+##clean and remove unmatch rows (The zipcode dataset is correct, but the raw fire data might be wrong, there might be some error in state name, so we need to remove the error terms)
+tidy2015_5 <- subset(tidy2015_4, state == STATE) #I also successfully removed the rows with "00000" zipcode using this subset.
+#Check duplicate incidents and remove them, then remove useless columns
+tidy2015_6 <- tidy2015_5[!duplicated(tidy2015_5), ]
+tidy2015_6$STATE_ID = NULL; tidy2015_6$CITY = NULL; tidy2015_6$STATE = NULL
+
+ cc2015$EXP_NO = NULL; cc2015$SEQ_NUMBER= NULL; cc2015$FDID = NULL
+cc2015$VERSION = NULL; cc2015$RACE = NULL; cc2015$ETHNICITY = NULL
+cc2015$AFFILIAT = NULL; cc2015$INJ_DT_TIM = NULL; cc2015$CAUSE_INJ =NULL
+cc2015$HUM_FACT1 = NULL; cc2015$HUM_FACT2 = NULL; cc2015$HUM_FACT3 = NULL
+cc2015$HUM_FACT4 = NULL; cc2015$HUM_FACT5 = NULL; cc2015$HUM_FACT7 = NULL
+cc2015$HUM_FACT6 = NULL; cc2015$HUM_FACT8 = NULL; cc2015$FACT_INJ1 = NULL
+cc2015$FACT_INJ2 = NULL; cc2015$FACT_INJ3 = NULL; cc2015$ACTIV_INJ = NULL
+cc2015$LOC_INC = NULL; cc2015$GEN_LOC_IN = NULL; cc2015$STORY_INC = NULL
+cc2015$STORY_INJ = NULL; cc2015$SPC_LOC_IN = NULL; cc2015$INC_DATE = NULL
+cc2015$PRIM_SYMP = NULL; cc2015$CC_DISPOS = NULL; cc2015$INC_NO = NULL
+cc2015 <- subset(cc2015, SEV == 5)
+cc2015$SEV = NULL #all 5 (death)
+
+names(cc2015)[names(cc2015) == 'GENDER'] <- 'CC_GENDER'
+names(cc2015)[names(cc2015) == 'AGE'] <- 'CC_AGE'
+names(cc2015)[names(cc2015) == 'BODY_PART'] <- 'CC_BODY_PART'
+
+tidy2015_7 <- left_join(tidy2015_6, cc2015, by = "SPID")
+#Check duplicate
+tidy2015_8 <- tidy2015_7[!duplicated(tidy2015_7), ]
+
+fc2015$STATE = NULL; fc2015$FDID = NULL; fc2015$INC_DATE = NULL; fc2015$INC_NO = NULL
+fc2015$EXP_NO = NULL; fc2015$FF_SEQ_NO = NULL; fc2015$VERSION = NULL; 
+fc2015$INJ_DATE = NULL; fc2015$RESPONSES = NULL; fc2015$ASSIGNMENT = NULL
+fc2015$TAKEN_TO = NULL; fc2015$ACTIVITY = NULL ; fc2015$SYMPTOM = NULL
+fc2015$PABI = NULL; fc2015$CAUSE = NULL; fc2015$FACTOR = NULL
+fc2015$OBJECT = NULL; fc2015$WIO = NULL; fc2015$RELATION = NULL
+fc2015$STORY = NULL; fc2015$LOCATION = NULL; fc2015$VEHICLE = NULL
+fc2015$PROT_EQP = NULL
+
+fc2015 <- subset(fc2015, SEVERITY == 7)
+fc2015$SEVERITY = NULL #all 7 (death)
+
+names(fc2015)[names(fc2015) == 'GENDER'] <- 'FC_GENDER'
+names(fc2015)[names(fc2015) == 'AGE'] <- 'FC_AGE'
+names(fc2015)[names(fc2015) == 'PHYS_COND'] <- 'FC_PHYS_COND'
+names(fc2015)[names(fc2015) == 'CAREER'] <- 'FC_CAREER'
+
+tidy2015_9 <- left_join(tidy2015_8, fc2015, by = "SPID")
+#Check duplicate
+tidy2015_10 <- tidy2015_9[!duplicated(tidy2015_9), ]
+
+write.dbf(tidy2015_10, "tidyrf2015.dbf")
+```

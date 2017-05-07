@@ -1,0 +1,239 @@
+---
+title: "Final Project Analysis"
+author: "Zhenru Han"
+date: "5/6/2017"
+output: html_document
+runtime: document
+---
+## Introduction:
+#### This time I am going to work with the Diane's Residential Fire Data (2006-2015). My focus of this project is "Residential Fire with Fatality", because the most cruel thing for people in this world is to die in fire of their home. My purpose of doing this research is to find out:
+####  1. Where are all the residential fire with fatality happened. Which State has the most frequency of RF with fatality.
+####  2. What kind of civilians mostly died in the fires. Which part of their bodies got injured. 
+####  3. What kind of fire servicers mostly died in the fires. What body conditions were they in before they went for the fire incidents.
+
+####According to my purpose, I choose four datasets each year: 
+####  1. Basic Incident. It contains number of death (to count death) and property use(to find residential fire).
+####  2. Incident Address. It contains the address of each incident and can help us get the coordinates to draw maps.
+####  3. Civilian Casualty. It tells me about the physical conditions of victims (before and after the incident).
+####  4.Fireservice Casualty. It tells me about the physical conditions of the fire servicers (before and after the incident).
+
+####I separate my research process into Four different steps:
+
+## Step 1: Preparing Data
+#### I did this process (clean and tidy) in another rmd file "Final Data Cleansing.rmd", and save all the 10-year tidy data with all the information I need to local.
+#### In the following I read all the tidy data for the following steps.
+### First, prepare libraries
+```{r}
+library(foreign)
+library(tidyr)
+library(dplyr)
+library(magrittr)
+library(scales)
+library(shiny)
+library(ggplot2)
+library(ggmap)
+library(leaflet)
+library(splitstackshape)
+library(zipcode)
+library(maps)
+library(mapproj)
+```
+### Second, read data.
+```{r}
+dat2006 <- read.dbf("tidyrf2006.dbf")
+dat2007 <- read.dbf("tidyrf2007.dbf")
+dat2008 <- read.dbf("tidyrf2008.dbf")
+dat2009 <- read.dbf("tidyrf2009.dbf")
+dat2010 <- read.dbf("tidyrf2010.dbf")
+dat2011 <- read.dbf("tidyrf2011.dbf")
+dat2012 <- read.dbf("tidyrf2012.dbf")
+dat2013 <- read.dbf("tidyrf2013.dbf")
+dat2014 <- read.dbf("tidyrf2014.dbf")
+dat2015 <- read.dbf("tidyrf2015.dbf")
+```
+
+## Step 2: Create Interactive Tables and Plots using Shiny.
+#### First, I visualize all the tidy tables using Shiny, see the folder Yearly_Table
+#### Second, Create a Interactive Plot using Shiny
+#### I am  generating the histagram of statewide death in each year from 2001-2016. This shiny app is in Yearly_Plot folder. Before running this shinny app, I need to clean the data again. 
+#### First, I need to get the number of death in each state in each year.
+```{r}
+ttdeath2006 <- plyr::count(dat2006$state)
+ttdeath2007 <- plyr::count(dat2007$state)
+ttdeath2008 <- plyr::count(dat2008$state)
+ttdeath2009 <- plyr::count(dat2009$state)
+ttdeath2010 <- plyr::count(dat2010$state)
+ttdeath2011 <- plyr::count(dat2011$state)
+ttdeath2012 <- plyr::count(dat2012$state)
+ttdeath2013 <- plyr::count(dat2013$state)
+ttdeath2014 <- plyr::count(dat2014$state)
+ttdeath2015 <- plyr::count(dat2015$state)
+```
+#### Second, I need to assign a specific ID to each State in each file
+```{r}
+ttdeath2006$ID <- seq.int(nrow(ttdeath2006))
+ttdeath2007$ID <- seq.int(nrow(ttdeath2007))
+ttdeath2008$ID <- seq.int(nrow(ttdeath2008))
+ttdeath2009$ID <- seq.int(nrow(ttdeath2009))
+ttdeath2010$ID <- seq.int(nrow(ttdeath2010))
+ttdeath2011$ID <- seq.int(nrow(ttdeath2011))
+ttdeath2012$ID <- seq.int(nrow(ttdeath2012))
+ttdeath2013$ID <- seq.int(nrow(ttdeath2013))
+ttdeath2014$ID <- seq.int(nrow(ttdeath2014))
+ttdeath2015$ID <- seq.int(nrow(ttdeath2015))
+```
+#### For plot in shiny easily, I need to expand the data again.
+```{r}
+expand2006 <- expandRows(ttdeath2006, "freq")
+expand2007 <- expandRows(ttdeath2007, "freq")
+expand2008 <- expandRows(ttdeath2008, "freq")
+expand2009 <- expandRows(ttdeath2009, "freq")
+expand2010 <- expandRows(ttdeath2010, "freq")
+expand2011 <- expandRows(ttdeath2011, "freq")
+expand2012 <- expandRows(ttdeath2012, "freq")
+expand2013 <- expandRows(ttdeath2013, "freq")
+expand2014 <- expandRows(ttdeath2014, "freq")
+expand2015 <- expandRows(ttdeath2015, "freq")
+```
+#### Third, plot histogram in shiny: See folder Yearly_Plots
+#### I am finding the number of death happened in each State each year.
+#### The x-axis is the specific ID for each state in each year (you can find ID's in the tables above plots)
+#### The y-axis is the number of death in each state yearly
+#### You can change the color of the plot if you want.
+
+## Step 3: Plot Yearly Fire Incident Locations using leaflet
+### I am locating the fire incidents each year on the map.
+#### Plot yearly fire incident location with leaflet
+```{r}
+#2006
+map2006 <- leaflet() %>%
+  addTiles() %>%  # Add default OpenStreetMap map tiles
+  addMarkers(lng=dat2006$longitude, lat=dat2006$latitude, popup=paste(dat2006$city, dat2006$state, dat2006$zip))
+map2006 
+#2007
+map2007 <- leaflet() %>%
+  addTiles() %>%  # Add default OpenStreetMap map tiles
+  addMarkers(lng=dat2007$longitude, lat=dat2007$latitude, popup=paste(dat2007$city, dat2007$state, dat2007$zip))
+map2007
+#2008
+map2008 <- leaflet() %>%
+  addTiles() %>%  # Add default OpenStreetMap map tiles
+  addMarkers(lng=dat2008$longitude, lat=dat2008$latitude, popup=paste(dat2008$city, dat2008$state, dat2008$zip))
+map2008
+#2009
+map2009 <- leaflet() %>%
+  addTiles() %>%  # Add default OpenStreetMap map tiles
+  addMarkers(lng=dat2009$longitude, lat=dat2009$latitude, popup=paste(dat2009$city, dat2009$state, dat2009$zip))
+map2009
+#2010
+map2010 <- leaflet() %>%
+  addTiles() %>%  # Add default OpenStreetMap map tiles
+  addMarkers(lng=dat2010$longitude, lat=dat2010$latitude, popup=paste(dat2010$city, dat2010$state, dat2010$zip))
+map2010
+#2011
+map2011 <- leaflet() %>%
+  addTiles() %>%  # Add default OpenStreetMap map tiles
+  addMarkers(lng=dat2011$longitude, lat=dat2011$latitude, popup=paste(dat2011$city, dat2011$state, dat2011$zip))
+map2011
+#2012
+map2012 <- leaflet() %>%
+  addTiles() %>%  # Add default OpenStreetMap map tiles
+  addMarkers(lng=dat2012$longitude, lat=dat2012$latitude, popup=paste(dat2012$city, dat2012$state, dat2012$zip))
+map2012
+#2013
+map2013 <- leaflet() %>%
+  addTiles() %>%  # Add default OpenStreetMap map tiles
+  addMarkers(lng=dat2013$longitude, lat=dat2013$latitude, popup=paste(dat2013$city, dat2013$state, dat2013$zip))
+map2013
+#2014
+map2014 <- leaflet() %>%
+  addTiles() %>%  # Add default OpenStreetMap map tiles
+  addMarkers(lng=dat2014$longitude, lat=dat2014$latitude, popup=paste(dat2014$city, dat2014$state, dat2014$zip))
+map2014
+#2015
+map2015 <- leaflet() %>%
+  addTiles() %>%  # Add default OpenStreetMap map tiles
+  addMarkers(lng=dat2015$longitude, lat=dat2015$latitude, popup=paste(dat2015$city, dat2015$state, dat2015$zip))
+map2015
+```
+
+## Step 4: Merge all Data and Get an Overall Analysis
+### I am going to take a look at the 10-year residential fire incidents with fatality to explore the relationship between death and physical conditions. I also want to see how the fire incident with fatality distributing in 10 years.
+#### First, merge data.
+```{r}
+wholedata_1 <- merge(dat2006, dat2007, all = TRUE)
+wholedata_2 <- merge(wholedata_1, dat2008, all = TRUE)
+wholedata_3 <- merge(wholedata_2, dat2009, all = TRUE)
+wholedata_4 <- merge(wholedata_3, dat2010, all = TRUE)
+wholedata_5 <- merge(wholedata_4, dat2011, all = TRUE)
+wholedata_6 <- merge(wholedata_5, dat2012, all = TRUE)
+wholedata_7 <- merge(wholedata_6, dat2013, all = TRUE)
+wholedata_8 <- merge(wholedata_7, dat2014, all = TRUE)
+wholedata_9 <- merge(wholedata_8, dat2015, all = TRUE)
+#The final data is:
+wholedata <- wholedata_9
+```
+#### Second, plot map to see how the fire incident with fatality distributing in 10 years.
+```{r}
+#I need all death numbers in each state
+ttdeath <- plyr::count(wholedata$state)
+colnames(ttdeath) <- c("STATE","DEATHNO")
+ttdeath <- ttdeath[!duplicated(ttdeath$STATE),]
+#Get coordinates 
+STATECODE <- as.character(ttdeath$STATE)
+longandlat <- data.frame(geocode(STATECODE))
+ttdeath <- merge(ttdeath, longandlat, all=TRUE)
+
+#Plot with scale
+colors = c("#F1EEF6", "#D4B9DA", "#C994C7", "#DF65B0", "#DD1C77", 
+    "#980043")
+ttdeath$colorBuckets <- as.numeric(cut(ttdeath$DEATHNO, c(0, 5, 10, 15 , 20, 25,
+   100)))
+map("county", col = colors[ttdeath$colorBuckets], fill = TRUE, resolution = 0, 
+    lty = 0, projection = "mercator")
+map("state", col = "black", fill = FALSE, add = TRUE, lty = 1, lwd = 1, 
+    projection = "mercator")
+title("Death of Residential fire, 2006-2015")
+leg.txt <- c("<5", "5-10", "10-15", "15-20", "20-25", ">25")
+legend("bottomright", leg.txt, horiz = FALSE, fill = colors)
+```
+#### We can also plot a linear plot to see which state has the highest number of death
+```{r}
+ ggplot(ttdeath, aes(x=STATE, y=DEATHNO)) + geom_point(size = 3, colour = "#CC0000") + geom_line(aes(group=1), colour="#000099") + ggtitle("Death in Each State")
+```
+#### It is obvious that State TX and OH have most death numbers. They are both big states, so it is reasonal.
+#### Third, analyze the relationship between death of civilians and their physical conditions.
+```{r}
+#Find incidents with death of civilians
+cd_1 <- subset(wholedata, OTH_DEATH> 0)
+```
+#### Consider the relationship between gender and death
+```{r}
+#Find the relationship between Gender and Death
+#Note M=1, F = 2
+ggplot(cd_1,aes(x= CC_GENDER, fill = CC_GENDER)) + coord_flip()+ geom_bar() + ggtitle("Gender compare to Death")
+```
+#### It shows that more men died in the residential fire than women.
+#### Consider the relationship between age and death
+```{r}
+ggplot(cd_1,aes(x= CC_AGE))+ geom_dotplot() + ggtitle("AGE compare to Death")
+
+#I notice a weired age here, it is almost 800, so I remove it as an error data
+cd_2 <- subset(cd_1, CC_AGE <150)
+ggplot(cd_2,aes(x= CC_AGE))  + geom_density() + ggtitle("AGE compare to Death")
+```
+#### We can clearly see that people die mostly are elders (over 50) and children (younger than 15). This is also reasonable becuase elders and childrens are highly possible to lack the ability to escape. The number of death over 90 is low because there are not many elders alive over 90.
+#### We can also see among all the body-part injuries that caused death, which ones are the most severe.
+```{r}
+ccinjury <- filter(wholedata, !is.na(wholedata$CC_BODY_PA))
+ggplot(ccinjury,aes(x= CC_BODY_PA, fill = CC_BODY_PA))  + geom_bar() + ggtitle("AGE compare to Death")
+```
+#### Clearly, the injury no.9 is the most severe. And after we check NFIRS explainations, we get no. 9 = "Multiple body parts". For single body part, no.8 = "Internal" is the most severe.
+
+#### Forth, analyze the relationship between death of fire servicers and their physical conditions.
+```{r}
+#Find incidents with death of civilians
+fd_1 <- subset(wholedata, FF_DEATH> 0)
+```
+#### We find out that this sample is too small (only 7 observations). We cannot conclude anything useful from it, so we skip this part.
+
